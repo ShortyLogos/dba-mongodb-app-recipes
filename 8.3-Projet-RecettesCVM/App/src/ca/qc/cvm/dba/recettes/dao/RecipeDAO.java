@@ -3,77 +3,192 @@ package ca.qc.cvm.dba.recettes.dao;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
+import ca.qc.cvm.dba.recettes.entity.Ingredient;
 import ca.qc.cvm.dba.recettes.entity.Recipe;
+import ca.qc.cvm.dba.recettes.dao.MongoConnection;
+import ca.qc.cvm.dba.recettes.dao.BerkeleyConnection;
+import com.mongodb.Block;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.sleepycat.je.Database;
+import com.sleepycat.je.DatabaseEntry;
+import org.bson.Document;
 
 public class RecipeDAO {
 
 	/**
-	 * Méthode permettant de sauvegarder une recette
+	 * Mï¿½thode permettant de sauvegarder une recette
 	 * 
 	 * Notes importantes:
-	 * - Si le champ "id" n'est pas null, alors c'est une mise à jour, autrement c'est une insertion
-	 * - Le nom de la recette doit être unique
-	 * - Regarder comment est fait la classe Recette et Ingredient pour avoir une idée des données à sauvegarder
-	 * - À l'insertion, il doit y avoir un id numérique unique associé à la recette. 
-	 *   Dépendemment de la base de données, vous devrez trouver une stratégie pour faire un id numérique.
+	 * - Si le champ "id" n'est pas null, alors c'est une mise ï¿½ jour, autrement c'est une insertion
+	 * - Le nom de la recette doit ï¿½tre unique
+	 * - Regarder comment est fait la classe Recette et Ingredient pour avoir une idï¿½e des donnï¿½es ï¿½ sauvegarder
+	 * - ï¿½ l'insertion, il doit y avoir un id numï¿½rique unique associï¿½ ï¿½ la recette. 
+	 *   Dï¿½pendemment de la base de donnï¿½es, vous devrez trouver une stratï¿½gie pour faire un id numï¿½rique.
 	 * 
-	 * @param recette
-	 * @return true si succès, false sinon
+	 * @param //recette
+	 * @return true si succï¿½s, false sinon
 	 */
 	public static boolean save(Recipe recipe) {
 		boolean success = false;
-				
+		try {
+			MongoDatabase conMongo = MongoConnection.getConnection();
+
+			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+			//MongoCollection<Document> collIngredients = conMongo.getCollection("ingredients"); <-----------------------------------------------------
+
+			Document doc = new Document ();
+			doc.append("name", recipe.getName().toUpperCase());
+			doc.append("portion", recipe.getPortion());
+			doc.append("prepTime", recipe.getPrepTime());
+			doc.append("cookTime", recipe.getCookTime());
+			doc.append("steps", recipe.getSteps());
+
+			List<Document> ingredientsList = new ArrayList<Document>();
+			for (Ingredient i: recipe.getIngredients()) {
+				String name = i.getName().toUpperCase();
+
+				Document ingDoc = new Document();
+				ingDoc.append("name", name);
+				ingDoc.append("quantity", i.getQuantity());
+
+				ingredientsList.add(ingDoc);
+				//collIngredients.insertOne(new Document("name", name)); <-----------------------------------------------------
+			}
+			doc.append("ingredients", ingredientsList);
+
+			collRecipes.insertOne(doc);
+
+			Database conBerkeley = BerkeleyConnection.getConnection();
+			FindIterable<Document> iterator = collRecipes.find(new Document("name", recipe.getName()));
+			try {
+				iterator.forEach(new Block<Document>() {
+					@Override
+					public void apply(final Document document) {
+						String cleRecipe = document.getObjectId("_id").toString();
+						recipe.setId(Long.parseLong(cleRecipe));
+						byte[] image = recipe.getImageData();
+						try {
+							DatabaseEntry theKey = new DatabaseEntry(cleRecipe.getBytes("UTF-8"));
+							DatabaseEntry theData = new DatabaseEntry(image);
+							conBerkeley.put(null, theKey, theData);
+						} catch (Exception e) {
+							e.printStackTrace();
+						}
+					}
+				});
+				success = true;
+			}
+			catch (Exception e) {
+				e.printStackTrace();
+			}
+		}
+		catch (Exception e) {
+			e.printStackTrace();
+		}
 		return success;
 	}
 
 	/**
-	 * Méthode permettant de retourner la liste des recettes de la base de données.
+	 * Mï¿½thode permettant de retourner la liste des recettes de la base de donnï¿½es.
 	 * 
 	 * Notes importantes:
-	 * - N'oubliez pas de limiter les résultats en fonction du paramètre limit
-	 * - La liste doit être triées en ordre croissant, selon le nom des recettes
-	 * - Le champ filtre doit permettre de filtrer selon le préfixe du nom (insensible à la casse)
+	 * - N'oubliez pas de limiter les rï¿½sultats en fonction du paramï¿½tre limit
+	 * - La liste doit ï¿½tre triï¿½es en ordre croissant, selon le nom des recettes
+	 * - Le champ filtre doit permettre de filtrer selon le prï¿½fixe du nom (insensible ï¿½ la casse)
 	 * - N'oubliez pas de mettre l'ID dans la recette
 	 * - Il pourrait ne pas y avoir de filtre (champ filtre vide)
 	 * 	 * 
-	 * @param filter champ filtre, peut être vide ou null
-	 * @param limit permet de restreindre les résultats
-	 * @return la liste des recettes, selon le filtre si nécessaire 
+	 * @param filter champ filtre, peut ï¿½tre vide ou null
+	 * @param limit permet de restreindre les rï¿½sultats
+	 * @return la liste des recettes, selon le filtre si nï¿½cessaire 
 	 */
 	public static List<Recipe> getRecipeList(String filter, int limit) {
 		List<Recipe> recipeList = new ArrayList<Recipe>();
-		
+		filter = "/^"+filter.toUpperCase()+"/";
+		try {
+			MongoDatabase conMongo = MongoConnection.getConnection();
+			Document query = new Document("name", new Document("$regex", filter));
+			Document oderBy = new Document("name", 1);
+			FindIterable<Document> iterator = conMongo.getCollection("recipes").find(query).sort(oderBy).limit(limit);
+			iterator.forEach(new Block<Document>() {
+				@Override
+				public void apply(final Document document) {
+					Recipe recipe = new Recipe();
+					recipe.setId(Long.parseLong(document.getObjectId("_id").toString()));
+					recipe.setName(document.getString("name"));
+					recipe.setPortion(document.getInteger("portion"));
+					recipe.setPrepTime(document.getInteger("prepTime"));
+					recipe.setCookTime(document.getInteger("cookTime"));
+					recipe.setSteps((List<String>)document.get("steps"));
+
+					List<Document> ingredientsList = (List<Document>)document.get("ingredients");
+					List<Ingredient> ingredients = new ArrayList<Ingredient>();
+					for (Document doc : ingredientsList) {
+						String ingName = document.getString("name");
+						String ingQte = document.getString("quantity");
+						ingredients.add(new Ingredient(ingName, ingQte));
+					}
+					recipe.setIngredients(ingredients);
+					recipeList.add(recipe);
+				}
+			});
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
 		return recipeList;
 	}
 
 	/**
-	 * Suppression des données liées à une recette
+	 * Suppression des donnï¿½es liï¿½es ï¿½ une recette
 	 * 
 	 * @param recipe
-	 * @return true si succès, false sinon
+	 * @return true si succï¿½s, false sinon
 	 */
 	public static boolean delete(Recipe recipe) {
 		boolean success = false;
-	
+		String filter = String.valueOf(recipe.getId());
+
+		try {
+			MongoDatabase conMongo = MongoConnection.getConnection();
+			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+			collRecipes.deleteOne(new Document("_id", filter));
+			success = true;
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
 		return success;
 	}
 	
 	/**
-	 * Suppression totale de toutes les données du système!
+	 * Suppression totale de toutes les donnï¿½es du systï¿½me!
 	 * 
-	 * @return true si succès, false sinon
+	 * @return true si succï¿½s, false sinon
 	 */
 	public static boolean deleteAll() {
 		boolean success = false;
-					
+
+		try {
+			MongoDatabase conMongo = MongoConnection.getConnection();
+			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+			collRecipes.deleteMany(new Document());
+			success = true;
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
 		return success;
 	}
 	
 	/**
-	 * Permet de retourner le nombre d'ingrédients en moyenne dans une recette
+	 * Permet de retourner le nombre d'ingrï¿½dients en moyenne dans une recette
 	 * 
-	 * @return le nombre moyen d'ingrédients
+	 * @return le nombre moyen d'ingrï¿½dients
 	 */
 	public static double getAverageNumberOfIngredients() {
 		double num = 0;
@@ -82,9 +197,9 @@ public class RecipeDAO {
 	}
 	
 	/**
-	 * Permet d'obtenir le temps de la recette la plus longue à faire.
+	 * Permet d'obtenir le temps de la recette la plus longue ï¿½ faire.
 	 * 
-	 * La recette la plus longue est calculée selon son temps de cuisson plus son temps de préparation
+	 * La recette la plus longue est calculï¿½e selon son temps de cuisson plus son temps de prï¿½paration
 	 * 
 	 * @return le temps maximal
 	 */
@@ -95,7 +210,7 @@ public class RecipeDAO {
 	}
 	
 	/**
-	 * Permet d'obtenir le nombre de photos dans la base de données BerkeleyDB
+	 * Permet d'obtenir le nombre de photos dans la base de donnï¿½es BerkeleyDB
 	 * 
 	 * @return nombre de photos dans BerkeleyDB
 	 */
@@ -106,7 +221,7 @@ public class RecipeDAO {
 	}
 
 	/**
-	 * Permet d'obtenir le nombre de recettes dans votre base de données
+	 * Permet d'obtenir le nombre de recettes dans votre base de donnï¿½es
 	 * 
 	 * @return nombre de recettes
 	 */
@@ -117,9 +232,9 @@ public class RecipeDAO {
 	}
 	
 	/**
-	 * Permet d'obtenir la dernière recette ajoutée dans le système
+	 * Permet d'obtenir la derniï¿½re recette ajoutï¿½e dans le systï¿½me
 	 * 
-	 * @return la dernière recette
+	 * @return la derniï¿½re recette
 	 */
 	public static Recipe getLastAddedRecipe() {
 		Recipe recipe = null;
@@ -129,22 +244,22 @@ public class RecipeDAO {
 	}
 	
 	/**
-	 * Cette fonctionnalité permet de générer une recette en se basant sur celles existantes 
-	 * dans le système. Voici l'algorithme générale à utiliser :
+	 * Cette fonctionnalitï¿½ permet de gï¿½nï¿½rer une recette en se basant sur celles existantes 
+	 * dans le systï¿½me. Voici l'algorithme gï¿½nï¿½rale ï¿½ utiliser :
 	 * 
-	 * 1- Allez chercher tous les ingrédients dans votre base de données
-	 * 2- Construisez une liste aléatoire d'ingrédients selon les ingrédients obtenus à l'étape précédente
-	 * 3- Créez une liste aléatoire de quelques étapes basée sur une liste prédéfinie(ex : "Mélangez tous les ingrédients", "cuire au four 20 minutes", etc)
-	 * 4- Faites un temps de cuisson, de préparation et de nombre de portions aléatoires
+	 * 1- Allez chercher tous les ingrï¿½dients dans votre base de donnï¿½es
+	 * 2- Construisez une liste alï¿½atoire d'ingrï¿½dients selon les ingrï¿½dients obtenus ï¿½ l'ï¿½tape prï¿½cï¿½dente
+	 * 3- Crï¿½ez une liste alï¿½atoire de quelques ï¿½tapes basï¿½e sur une liste prï¿½dï¿½finie(ex : "Mï¿½langez tous les ingrï¿½dients", "cuire au four 20 minutes", etc)
+	 * 4- Faites un temps de cuisson, de prï¿½paration et de nombre de portions alï¿½atoires
 	 * 5- Copiez une image d'une autre recette
 	 * 6- Construisez un nom en utilisant cette logique :
-	 *    - un préfixe aléatoire parmi une liste prédéfinie (ex: ["Giblotte à", "Mélangé de", "Crastillon de"]
-	 *    - un suffixe basé sur un des ingrédients de la recette (ex: "farine").
-	 *    - Résultat fictif : Crastillon à farine
+	 *    - un prï¿½fixe alï¿½atoire parmi une liste prï¿½dï¿½finie (ex: ["Giblotte ï¿½", "Mï¿½langï¿½ de", "Crastillon de"]
+	 *    - un suffixe basï¿½ sur un des ingrï¿½dients de la recette (ex: "farine").
+	 *    - Rï¿½sultat fictif : Crastillon ï¿½ farine
 	 * 
-	 * Laissez l'ID de le recette vide, et ne l'ajoutez pas dans la base de données.
+	 * Laissez l'ID de le recette vide, et ne l'ajoutez pas dans la base de donnï¿½es.
 	 * 
-	 * @return une recette générée
+	 * @return une recette gï¿½nï¿½rï¿½e
 	 */
 	public static Recipe generateRandomRecipe() {
 		Recipe r = new Recipe();
@@ -153,15 +268,15 @@ public class RecipeDAO {
 	}
 	
 	/**
-	 * Permet d'obtenir une liste de noms de recette similaires à une autre recette
+	 * Permet d'obtenir une liste de noms de recette similaires ï¿½ une autre recette
 	 * 
-	 * - En se basant sur les ingrédients d'une recette existante (obtenue par recipeId)
-	 * - Trouver les recettes qui ont les ingrédients les plus similaires. 
-	 * - Les ordonner DESC (selon le nombre d'ingrédients similaires), limiter les résultats (limit), 
+	 * - En se basant sur les ingrï¿½dients d'une recette existante (obtenue par recipeId)
+	 * - Trouver les recettes qui ont les ingrï¿½dients les plus similaires. 
+	 * - Les ordonner DESC (selon le nombre d'ingrï¿½dients similaires), limiter les rï¿½sultats (limit), 
 	 * - puis retourner le nom de ces recettes 
 	 * 
 	 * @param recipeId id de la recette
-	 * @param limit nombre à retourner
+	 * @param limit nombre ï¿½ retourner
 	 * @return
 	 */
 	public static List<String> getSimilarRecipes(long recipeId, int limit) {
