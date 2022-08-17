@@ -32,12 +32,13 @@ public class RecipeDAO {
 	 * @param //recette
 	 * @return true si succ�s, false sinon
 	 */
-	public static boolean save(Recipe recipe) {
+	public static boolean save(final Recipe recipe) {
 		boolean success = false;
 		try {
 			MongoDatabase conMongo = MongoConnection.getConnection();
-
 			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+			final Database conBerkeley = BerkeleyConnection.getConnection();
+			
 			//MongoCollection<Document> collIngredients = conMongo.getCollection("ingredients"); <-----------------------------------------------------
 
 			Document doc = new Document ();
@@ -61,8 +62,9 @@ public class RecipeDAO {
 			doc.append("ingredients", ingredientsList);
 
 			collRecipes.insertOne(doc);
-
-			Database conBerkeley = BerkeleyConnection.getConnection();
+			
+			// On effectue une requête suite à l'insertion pour obtenir le ID généré aléatoirement
+			// par MongoDB et l'utiliser comme clé dans BerkeleyDB
 			FindIterable<Document> iterator = collRecipes.find(new Document("name", recipe.getName()));
 			try {
 				iterator.forEach(new Block<Document>() {
@@ -107,18 +109,27 @@ public class RecipeDAO {
 	 * @return la liste des recettes, selon le filtre si n�cessaire 
 	 */
 	public static List<Recipe> getRecipeList(String filter, int limit) {
-		List<Recipe> recipeList = new ArrayList<Recipe>();
-		filter = "/^"+filter.toUpperCase()+"/";
+		final List<Recipe> recipeList = new ArrayList<Recipe>();
+
 		try {
 			MongoDatabase conMongo = MongoConnection.getConnection();
-			Document query = new Document("name", new Document("$regex", filter));
+			MongoCollection<Document> collection = conMongo.getCollection("recipes");
+			
+			Document query = new Document();
+//			if (filter != "") {
+//				filter = "/^"+filter.toUpperCase()+"/";
+//				query = new Document("name", new Document("$regex", filter));
+//			}
+	
 			Document oderBy = new Document("name", 1);
-			FindIterable<Document> iterator = conMongo.getCollection("recipes").find(query).sort(oderBy).limit(limit);
+			FindIterable<Document> iterator = collection.find(query).sort(oderBy).limit(limit);
+			
 			iterator.forEach(new Block<Document>() {
 				@Override
 				public void apply(final Document document) {
 					Recipe recipe = new Recipe();
-					recipe.setId(Long.parseLong(document.getObjectId("_id").toString()));
+					Long id = (long)document.getObjectId("_id").getTimestamp();
+					recipe.setId(id);
 					recipe.setName(document.getString("name"));
 					recipe.setPortion(document.getInteger("portion"));
 					recipe.setPrepTime(document.getInteger("prepTime"));
@@ -128,11 +139,15 @@ public class RecipeDAO {
 					List<Document> ingredientsList = (List<Document>)document.get("ingredients");
 					List<Ingredient> ingredients = new ArrayList<Ingredient>();
 					for (Document doc : ingredientsList) {
-						String ingName = document.getString("name");
-						String ingQte = document.getString("quantity");
+						String ingName = doc.getString("name");
+						String ingQte = doc.getString("quantity");
 						ingredients.add(new Ingredient(ingName, ingQte));
 					}
 					recipe.setIngredients(ingredients);
+					
+					// Récupérer l'image depuis 
+					recipe.setImageData(null);
+					
 					recipeList.add(recipe);
 				}
 			});
