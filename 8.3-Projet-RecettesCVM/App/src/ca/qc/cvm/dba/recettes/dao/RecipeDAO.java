@@ -1,5 +1,6 @@
 package ca.qc.cvm.dba.recettes.dao;
 
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -15,6 +16,10 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
+import com.sleepycat.je.DatabaseException;
+import com.sleepycat.je.Cursor;
+import com.sleepycat.je.LockMode;
+import com.sleepycat.je.OperationStatus;
 import org.bson.Document;
 
 public class RecipeDAO {
@@ -32,13 +37,13 @@ public class RecipeDAO {
 	 * @param //recette
 	 * @return true si succ�s, false sinon
 	 */
-	public static boolean save(Recipe recipe) {
+	public static boolean save(final Recipe recipe) {
 		boolean success = false;
+		
 		try {
 			MongoDatabase conMongo = MongoConnection.getConnection();
-
 			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
-			//MongoCollection<Document> collIngredients = conMongo.getCollection("ingredients"); <-----------------------------------------------------
+			final Database conBerkeley = BerkeleyConnection.getConnection();
 
 			Document doc = new Document ();
 			doc.append("name", recipe.getName().toUpperCase());
@@ -48,33 +53,37 @@ public class RecipeDAO {
 			doc.append("steps", recipe.getSteps());
 
 			List<Document> ingredientsList = new ArrayList<Document>();
-			for (Ingredient i: recipe.getIngredients()) {
-				String name = i.getName().toUpperCase();
-
+			for (Ingredient ing: recipe.getIngredients()) {
 				Document ingDoc = new Document();
-				ingDoc.append("name", name);
-				ingDoc.append("quantity", i.getQuantity());
+				
+				ingDoc.append("name", ing.getName().toUpperCase());
+				ingDoc.append("quantity", ing.getQuantity());
 
 				ingredientsList.add(ingDoc);
-				//collIngredients.insertOne(new Document("name", name)); <-----------------------------------------------------
 			}
 			doc.append("ingredients", ingredientsList);
 
 			collRecipes.insertOne(doc);
-
-			Database conBerkeley = BerkeleyConnection.getConnection();
-			FindIterable<Document> iterator = collRecipes.find(new Document("name", recipe.getName()));
+			
+			// On effectue une requête suite à l'insertion pour obtenir le ID généré aléatoirement
+			// par MongoDB et l'utiliser comme clé dans BerkeleyDB
+			FindIterable<Document> iterator = collRecipes.find(new Document("name", recipe.getName().toUpperCase()));
 			try {
 				iterator.forEach(new Block<Document>() {
 					@Override
 					public void apply(final Document document) {
-						String cleRecipe = document.getObjectId("_id").toString();
-						recipe.setId(Long.parseLong(cleRecipe));
+						// Contrainte imposée par la classse Recette pour convertir en long
+						Long idRecipe = (long)document.getObjectId("_id").getTimestamp();
+						recipe.setId(idRecipe);
+						
+						String keyRecipe = String.valueOf(idRecipe);
 						byte[] image = recipe.getImageData();
+						
 						try {
-							DatabaseEntry theKey = new DatabaseEntry(cleRecipe.getBytes("UTF-8"));
+							DatabaseEntry theKey = new DatabaseEntry(keyRecipe.getBytes("UTF-8"));
 							DatabaseEntry theData = new DatabaseEntry(image);
-							conBerkeley.put(null, theKey, theData);
+							OperationStatus s = conBerkeley.put(null, theKey, theData);
+							
 						} catch (Exception e) {
 							e.printStackTrace();
 						}
@@ -104,35 +113,100 @@ public class RecipeDAO {
 	 * 	 * 
 	 * @param filter champ filtre, peut �tre vide ou null
 	 * @param limit permet de restreindre les r�sultats
-	 * @return la liste des recettes, selon le filtre si n�cessaire 
+	 * @return la liste des recettes, selon le filtre si n�cessaire
 	 */
 	public static List<Recipe> getRecipeList(String filter, int limit) {
-		List<Recipe> recipeList = new ArrayList<Recipe>();
-		filter = "/^"+filter.toUpperCase()+"/";
+		boolean displayKeys = true;
+
+		if (displayKeys) {
+			Database connection = BerkeleyConnection.getConnection();
+			Cursor myCursor = null;
+			
+			System.out.println("Database dump: ");
+			try {
+			    myCursor = connection.openCursor(null, null);
+			 
+			    DatabaseEntry foundKey = new DatabaseEntry();
+			    DatabaseEntry foundData = new DatabaseEntry();
+			 
+			    while (myCursor.getNext(foundKey, foundData, LockMode.DEFAULT) == OperationStatus.SUCCESS) {
+			        String keyString = new String(foundKey.getData(), "UTF-8");
+			        System.out.println(foundKey);
+			    }
+			} 
+			catch (DatabaseException de) {
+			    System.err.println("Erreur de lecture de la base de données: " + de);
+			} 
+			catch (UnsupportedEncodingException e) {
+				e.printStackTrace();
+			} 
+			finally {
+			    try {
+			        if (myCursor != null) {
+			            myCursor.close();
+			        }
+			    } 
+			 catch(DatabaseException dbe) {
+			        System.err.println("Erreur de fermeture du curseur: " + dbe.toString());
+			    }
+			}
+			
+			System.out.println("Test terminé.");
+		}
+
+
+		final List<Recipe> recipeList = new ArrayList<Recipe>();
 		try {
 			MongoDatabase conMongo = MongoConnection.getConnection();
-			Document query = new Document("name", new Document("$regex", filter));
+			MongoCollection<Document> collection = conMongo.getCollection("recipes");
+			
+			Document query = new Document();
+//			if (filter != "") {
+//				filter = "/^"+filter.toUpperCase()+"/";
+//				query = new Document("name", new Document("$regex", filter));
+//			}
+	
 			Document oderBy = new Document("name", 1);
-			FindIterable<Document> iterator = conMongo.getCollection("recipes").find(query).sort(oderBy).limit(limit);
+			FindIterable<Document> iterator = collection.find(query).sort(oderBy).limit(limit);
+			
 			iterator.forEach(new Block<Document>() {
 				@Override
 				public void apply(final Document document) {
 					Recipe recipe = new Recipe();
-					recipe.setId(Long.parseLong(document.getObjectId("_id").toString()));
+					recipe.setId((long)document.getObjectId("_id").getTimestamp());
 					recipe.setName(document.getString("name"));
 					recipe.setPortion(document.getInteger("portion"));
 					recipe.setPrepTime(document.getInteger("prepTime"));
 					recipe.setCookTime(document.getInteger("cookTime"));
 					recipe.setSteps((List<String>)document.get("steps"));
-
-					List<Document> ingredientsList = (List<Document>)document.get("ingredients");
+					
+					// Insertion des ingrédients
 					List<Ingredient> ingredients = new ArrayList<Ingredient>();
+					List<Document> ingredientsList = (List<Document>)document.get("ingredients");
 					for (Document doc : ingredientsList) {
-						String ingName = document.getString("name");
-						String ingQte = document.getString("quantity");
+						String ingName = doc.getString("name");
+						String ingQte = doc.getString("quantity");
 						ingredients.add(new Ingredient(ingName, ingQte));
 					}
 					recipe.setIngredients(ingredients);
+					
+					// Récupérer l'image depuis BerkeleyDB
+					try {
+						Database conBerkeley = BerkeleyConnection.getConnection();
+						
+						DatabaseEntry theKey = new DatabaseEntry(String.valueOf(recipe.getId()).getBytes("UTF-8"));
+					    DatabaseEntry theData = new DatabaseEntry();
+					    
+					    OperationStatus status = conBerkeley.get(null, theKey, theData, LockMode.DEFAULT);
+					    if (status == OperationStatus.SUCCESS) { 
+					        byte[] imgData = theData.getData();
+					        recipe.setImageData(imgData);
+					    } 
+		
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
+					
 					recipeList.add(recipe);
 				}
 			});
