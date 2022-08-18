@@ -15,6 +15,7 @@ import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.DatabaseException;
@@ -22,6 +23,7 @@ import com.sleepycat.je.Cursor;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 
 public class RecipeDAO {
 
@@ -40,6 +42,7 @@ public class RecipeDAO {
 	 */
 	public static boolean save(final Recipe recipe) {
 		boolean success = false;
+		String recipeName = recipe.getName().toUpperCase();
 		
 		try {
 			MongoDatabase conMongo = MongoConnection.getConnection();
@@ -47,7 +50,7 @@ public class RecipeDAO {
 			final Database conBerkeley = BerkeleyConnection.getConnection();
 
 			Document doc = new Document ();
-			doc.append("name", recipe.getName().toUpperCase());
+			doc.append("name", recipeName);
 			doc.append("portion", recipe.getPortion());
 			doc.append("prepTime", recipe.getPrepTime());
 			doc.append("cookTime", recipe.getCookTime());
@@ -64,13 +67,21 @@ public class RecipeDAO {
 			}
 			doc.append("ingredients", ingredientsList);
 
-			collRecipes.insertOne(doc);
+			if (recipe.getId() == null) {
+				collRecipes.insertOne(doc);
+			}
+			else {
+				Bson filter = Filters.eq("name", recipeName);				
+				collRecipes.replaceOne(filter, doc);
+			}
 			
 			// On effectue une requête suite à l'insertion pour obtenir le ID généré aléatoirement
 			// par MongoDB et l'utiliser comme clé dans BerkeleyDB
-			FindIterable<Document> iterator = collRecipes.find(new Document("name", recipe.getName().toUpperCase()));
+			FindIterable<Document> iterator = collRecipes.find(new Document("name", recipeName));
 			try {
+				final List<Boolean> internSuccess = new ArrayList<Boolean>();
 				iterator.forEach(new Block<Document>() {
+					
 					@Override
 					public void apply(final Document document) {
 						// Contrainte imposée par la classse Recette pour convertir en long
@@ -83,14 +94,17 @@ public class RecipeDAO {
 						try {
 							DatabaseEntry theKey = new DatabaseEntry(keyRecipe.getBytes("UTF-8"));
 							DatabaseEntry theData = new DatabaseEntry(image);
-							OperationStatus s = conBerkeley.put(null, theKey, theData);
+							conBerkeley.put(null, theKey, theData);
 							
+							internSuccess.add(true);
 						} catch (Exception e) {
 							e.printStackTrace();
 						}
 					}
 				});
-				success = true;
+				if (internSuccess.get(0) == true) {
+					success = true;
+				}
 			}
 			catch (Exception e) {
 				e.printStackTrace();
@@ -99,6 +113,7 @@ public class RecipeDAO {
 		catch (Exception e) {
 			e.printStackTrace();
 		}
+		
 		return success;
 	}
 
@@ -120,41 +135,8 @@ public class RecipeDAO {
 		boolean displayKeys = true;
 
 		if (displayKeys) {
-			Database connection = BerkeleyConnection.getConnection();
-			Cursor myCursor = null;
-			
-			System.out.println("Database dump: ");
-			try {
-			    myCursor = connection.openCursor(null, null);
-			 
-			    DatabaseEntry foundKey = new DatabaseEntry();
-			    DatabaseEntry foundData = new DatabaseEntry();
-			 
-			    while (myCursor.getNext(foundKey, foundData, LockMode.DEFAULT) == OperationStatus.SUCCESS) {
-			        String keyString = new String(foundKey.getData(), "UTF-8");
-			        System.out.println(foundKey);
-			    }
-			} 
-			catch (DatabaseException de) {
-			    System.err.println("Erreur de lecture de la base de données: " + de);
-			} 
-			catch (UnsupportedEncodingException e) {
-				e.printStackTrace();
-			} 
-			finally {
-			    try {
-			        if (myCursor != null) {
-			            myCursor.close();
-			        }
-			    } 
-			 catch(DatabaseException dbe) {
-			        System.err.println("Erreur de fermeture du curseur: " + dbe.toString());
-			    }
-			}
-			
-			System.out.println("Test terminé.");
+			testBerkeley();
 		}
-
 
 		final List<Recipe> recipeList = new ArrayList<Recipe>();
 		try {
@@ -404,6 +386,8 @@ public class RecipeDAO {
 		Recipe recipe = null;
 		
 		
+		
+		
 		return recipe;
 	}
 	
@@ -447,5 +431,41 @@ public class RecipeDAO {
 		List<String> recipeList = new ArrayList<String>();
 
 		return recipeList;
+	}
+	
+	public static void testBerkeley() {
+		Database connection = BerkeleyConnection.getConnection();
+		Cursor myCursor = null;
+		
+		System.out.println("Database dump: ");
+		try {
+		    myCursor = connection.openCursor(null, null);
+		 
+		    DatabaseEntry foundKey = new DatabaseEntry();
+		    DatabaseEntry foundData = new DatabaseEntry();
+		 
+		    while (myCursor.getNext(foundKey, foundData, LockMode.DEFAULT) == OperationStatus.SUCCESS) {
+		        String keyString = new String(foundKey.getData(), "UTF-8");
+		        System.out.println(foundKey);
+		    }
+		} 
+		catch (DatabaseException de) {
+		    System.err.println("Erreur de lecture de la base de données: " + de);
+		} 
+		catch (UnsupportedEncodingException e) {
+			e.printStackTrace();
+		} 
+		finally {
+		    try {
+		        if (myCursor != null) {
+		            myCursor.close();
+		        }
+		    } 
+		 catch(DatabaseException dbe) {
+		        System.err.println("Erreur de fermeture du curseur: " + dbe.toString());
+		    }
+		}
+		
+		System.out.println("Test terminé.");
 	}
 }
