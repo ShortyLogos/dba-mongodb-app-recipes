@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 import ca.qc.cvm.dba.recettes.entity.Ingredient;
 import ca.qc.cvm.dba.recettes.entity.Recipe;
@@ -84,7 +85,9 @@ public class RecipeDAO {
 					
 					@Override
 					public void apply(final Document document) {
-						// Contrainte imposée par la classse Recette pour convertir en long
+						// Contrainte imposée par la classse Recipe pour convertir en Long
+						// On ne peut donc pas entreposer le hash complet généré par MongoDB
+						// Seulement la partie 'Timestamp' du hash
 						Long idRecipe = (long)document.getObjectId("_id").getTimestamp();
 						recipe.setId(idRecipe);
 						
@@ -144,13 +147,13 @@ public class RecipeDAO {
 			MongoCollection<Document> collection = conMongo.getCollection("recipes");
 			
 			Document query = new Document();
-//			if (filter != "") {
-//				filter = "/^"+filter.toUpperCase()+"/";
-//				query = new Document("name", new Document("$regex", filter));
-//			}
+			
+			if (filter.length() > 0) {
+				query.append("name", new Document("$regex", "^(?i)"+Pattern.quote(filter)));
+			}
 	
-			Document oderBy = new Document("name", 1);
-			FindIterable<Document> iterator = collection.find(query).sort(oderBy).limit(limit);
+			Document orderBy = new Document("name", 1);
+			FindIterable<Document> iterator = collection.find(query).sort(orderBy).limit(limit);
 			
 			iterator.forEach(new Block<Document>() {
 				@Override
@@ -221,7 +224,6 @@ public class RecipeDAO {
             conBerkeley.delete(null, theKey);
             
             success = true;
-
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -354,7 +356,8 @@ public class RecipeDAO {
 		 catch(DatabaseException dbe) {
 		        System.err.println("Erreur de fermeture du curseur: " + dbe.toString());
 		    }
-		}		
+		}
+		
 		return num;
 	}
 

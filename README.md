@@ -35,5 +35,9 @@ de manière complète à partir de la seule partie Timestamp de l'ObjectID.
 Si nous disposions de la liberté de soit changer le type de la variable d'instance
 'Id' de la classe Recipe en tant que String ou encore d'ajouter une variable du style 'mongoId' au sein
 de la classe pour y entreposer le '_id' généré par MongoDB, nous aurions pu facilement
-échapper à toutes ces complications.
+échapper à toutes ces complications.<
+
+## SOURCES
+Synthaxe des expression régulières en Java :
+https://stackoverflow.com/questions/32714333/java-mongodb-regex-query
 
