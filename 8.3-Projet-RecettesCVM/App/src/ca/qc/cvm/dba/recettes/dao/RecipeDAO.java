@@ -11,6 +11,7 @@ import ca.qc.cvm.dba.recettes.entity.Recipe;
 import ca.qc.cvm.dba.recettes.dao.MongoConnection;
 import ca.qc.cvm.dba.recettes.dao.BerkeleyConnection;
 import com.mongodb.Block;
+import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -223,21 +224,28 @@ public class RecipeDAO {
 	 * @param recipe
 	 * @return true si succ�s, false sinon
 	 */
-	public static boolean delete(Recipe recipe) {
-		boolean success = false;
-		String filter = String.valueOf(recipe.getId());
+    public static boolean delete(Recipe recipe) {
+        boolean success = false;
+        
+        try {
+            MongoDatabase conMongo = MongoConnection.getConnection();
+            MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+            Database conBerkeley = BerkeleyConnection.getConnection();  
+        
+            String key = String.valueOf(recipe.getId());
+            DatabaseEntry theKey = new DatabaseEntry(key.getBytes("UTF-8"));
+            
+            collRecipes.deleteOne(new Document("name", recipe.getName()));
+            conBerkeley.delete(null, theKey);
+            
+            success = true;
 
-		try {
-			MongoDatabase conMongo = MongoConnection.getConnection();
-			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
-			collRecipes.deleteOne(new Document("_id", filter));
-			success = true;
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-
-		return success;
-	}
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        
+        return success;
+    }
 	
 	/**
 	 * Suppression totale de toutes les donn�es du syst�me!
@@ -246,15 +254,40 @@ public class RecipeDAO {
 	 */
 	public static boolean deleteAll() {
 		boolean success = false;
+		Cursor myCursor = null;
 
 		try {
 			MongoDatabase conMongo = MongoConnection.getConnection();
 			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
 			collRecipes.deleteMany(new Document());
+			
+			final Database conBerkeley = BerkeleyConnection.getConnection();
+			List<String> myList = new ArrayList<>(); 
+			try {
+				myCursor = conBerkeley.openCursor(null, null);
+				DatabaseEntry foundKey = new DatabaseEntry();
+			    DatabaseEntry foundData = new DatabaseEntry();
+			    while (myCursor.getNext(foundKey, foundData, LockMode.DEFAULT) == OperationStatus.SUCCESS) {
+			    	myList.add(new String(foundKey.getData(), "UTF-8"));
+			    }
+			} catch (Exception e) {
+				e.printStackTrace();
+			} finally {
+				try {
+					if (myCursor != null) {
+			            myCursor.close();
+			        }
+			    } catch(DatabaseException dbe) {
+			        System.err.println("Erreur de fermeture du curseur: " + dbe.toString());
+			    }
+			}
+		    for (String key: myList) {
+		    	conBerkeley.delete(null, new DatabaseEntry(key.getBytes("UTF-8")));
+		    }
 			success = true;
 		} catch (Exception e) {
 			e.printStackTrace();
-		}
+		} 
 
 		return success;
 	}
@@ -266,7 +299,31 @@ public class RecipeDAO {
 	 */
 	public static double getAverageNumberOfIngredients() {
 		double num = 0;
-				
+		
+		MongoDatabase conMongo = MongoConnection.getConnection();
+		MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+
+		Document group = new Document(
+			"$group", new Document("_id", null).append(
+				"average", new Document( "$avg", new Document("$size","$ingredients") )
+			)
+		);
+
+		List<Document> list = new ArrayList<Document>();
+		list.add(group);
+
+		final List<Document> results = new ArrayList<Document>();
+
+		AggregateIterable<Document> iterable = collRecipes.aggregate(list );
+		iterable.forEach(new Block<Document>() {
+			@Override
+			public void apply(final Document document) {
+				results.add(document);
+			}
+		});
+
+		num = results.get(0).getDouble("average");
+		
 		return num;
 	}
 	
@@ -290,7 +347,32 @@ public class RecipeDAO {
 	 */
 	public static long getPhotoCount() {
 		long num = 0;
-		
+		Cursor myCursor = null;
+
+		try {
+			final Database conBerkeley = BerkeleyConnection.getConnection();
+		    myCursor = conBerkeley.openCursor(null, null);
+		 
+		    DatabaseEntry foundKey = new DatabaseEntry();
+		    DatabaseEntry foundData = new DatabaseEntry();
+		 
+		    while (myCursor.getNext(foundKey, foundData, LockMode.DEFAULT) == OperationStatus.SUCCESS) {
+		        num++;
+		    }
+		} 
+		catch (DatabaseException de) {
+		    System.err.println("Erreur de lecture de la base de données: " + de);
+		} 
+		finally {
+		    try {
+		        if (myCursor != null) {
+		            myCursor.close();
+		        }
+		    } 
+		 catch(DatabaseException dbe) {
+		        System.err.println("Erreur de fermeture du curseur: " + dbe.toString());
+		    }
+		}		
 		return num;
 	}
 
@@ -301,6 +383,14 @@ public class RecipeDAO {
 	 */
 	public static long getRecipeCount() {
 		long num = 0;
+		
+		try {
+			MongoDatabase conMongo = MongoConnection.getConnection();
+			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+			num = collRecipes.count();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 		
 		return num;
 	}
