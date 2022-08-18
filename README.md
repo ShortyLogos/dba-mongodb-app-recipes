@@ -2,7 +2,8 @@
 Projet réalisé à partir d'une solution polyglote MongoDB + BerkeleyDB
 
 ## ÉQUIPE
-Déric & Karl Marchand
+Déric Marchand
+Karl Marchand
 
 ## COLLECTIONS
 Une seule collection 'recipes'
