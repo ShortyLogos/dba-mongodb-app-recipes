@@ -164,41 +164,7 @@ public class RecipeDAO {
 			iterator.forEach(new Block<Document>() {
 				@Override
 				public void apply(final Document document) {
-					Recipe recipe = new Recipe();
-					recipe.setId((long)document.getObjectId("_id").getTimestamp());
-					recipe.setName(document.getString("name"));
-					recipe.setPortion(document.getInteger("portion"));
-					recipe.setPrepTime(document.getInteger("prepTime"));
-					recipe.setCookTime(document.getInteger("cookTime"));
-					recipe.setSteps((List<String>)document.get("steps"));
-					
-					// Insertion des ingrédients
-					List<Ingredient> ingredients = new ArrayList<Ingredient>();
-					List<Document> ingredientsList = (List<Document>)document.get("ingredients");
-					for (Document doc : ingredientsList) {
-						String ingName = doc.getString("name");
-						String ingQte = doc.getString("quantity");
-						ingredients.add(new Ingredient(ingName, ingQte));
-					}
-					recipe.setIngredients(ingredients);
-					
-					// Récupérer l'image depuis BerkeleyDB
-					try {
-						Database conBerkeley = BerkeleyConnection.getConnection();
-						
-						DatabaseEntry theKey = new DatabaseEntry(String.valueOf(recipe.getId()).getBytes("UTF-8"));
-					    DatabaseEntry theData = new DatabaseEntry();
-					    
-					    OperationStatus status = conBerkeley.get(null, theKey, theData, LockMode.DEFAULT);
-					    if (status == OperationStatus.SUCCESS) { 
-					        byte[] imgData = theData.getData();
-					        recipe.setImageData(imgData);
-					    } 
-		
-					} catch (Exception e) {
-						e.printStackTrace();
-					}
-					
+					Recipe recipe = convertDocToRecipe(document);
 					recipeList.add(recipe);
 				}
 			});
@@ -420,8 +386,13 @@ public class RecipeDAO {
 	public static Recipe getLastAddedRecipe() {
 		Recipe recipe = null;
 		
-		
-		
+		try {
+			MongoDatabase conMongo = MongoConnection.getConnection();
+			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+			recipe = convertDocToRecipe(collRecipes.find().sort(new Document("_id", -1)).first());
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 		
 		return recipe;
 	}
@@ -468,6 +439,20 @@ public class RecipeDAO {
 		return recipeList;
 	}
 	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
 	public static void testBerkeley() {
 		Database connection = BerkeleyConnection.getConnection();
 		Cursor myCursor = null;
@@ -503,4 +488,45 @@ public class RecipeDAO {
 		
 		System.out.println("Test terminé.");
 	}
+	
+	public static Recipe convertDocToRecipe(Document document) {
+		Recipe recipe = new Recipe();
+		
+		recipe.setId((long)document.getObjectId("_id").getTimestamp());
+		recipe.setName(document.getString("name"));
+		recipe.setPortion(document.getInteger("portion"));
+		recipe.setPrepTime(document.getInteger("prepTime"));
+		recipe.setCookTime(document.getInteger("cookTime"));
+		recipe.setSteps((List<String>)document.get("steps"));
+		
+		// Insertion des ingrédients
+		List<Ingredient> ingredients = new ArrayList<Ingredient>();
+		List<Document> ingredientsList = (List<Document>)document.get("ingredients");
+		for (Document doc : ingredientsList) {
+			String ingName = doc.getString("name");
+			String ingQte = doc.getString("quantity");
+			ingredients.add(new Ingredient(ingName, ingQte));
+		}
+		recipe.setIngredients(ingredients);
+		
+		// Récupérer l'image depuis BerkeleyDB
+		try {
+			Database conBerkeley = BerkeleyConnection.getConnection();
+			
+			DatabaseEntry theKey = new DatabaseEntry(String.valueOf(recipe.getId()).getBytes("UTF-8"));
+		    DatabaseEntry theData = new DatabaseEntry();
+		    
+		    OperationStatus status = conBerkeley.get(null, theKey, theData, LockMode.DEFAULT);
+		    if (status == OperationStatus.SUCCESS) { 
+		        byte[] imgData = theData.getData();
+		        recipe.setImageData(imgData);
+		    } 
+
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		
+		return recipe;
+	}
+	
 }
