@@ -2,6 +2,7 @@ package ca.qc.cvm.dba.recettes.dao;
 
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -21,7 +22,13 @@ import com.sleepycat.je.DatabaseException;
 import com.sleepycat.je.Cursor;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
+
+import org.bson.BsonArray;
+import org.bson.BsonDocument;
+import org.bson.BsonInt64;
+import org.bson.BsonString;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 
 public class RecipeDAO {
 
@@ -336,6 +343,32 @@ public class RecipeDAO {
 	 */
 	public static long getMaxRecipeTime() {
 		long num = 0;
+		
+		try {
+			MongoDatabase conMongo = MongoConnection.getConnection();
+			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+			
+			BsonArray fieldList = new BsonArray();
+			fieldList.add(new BsonString("$prepTime"));
+			fieldList.add(new BsonString("$cookTime"));
+			AggregateIterable<Document> iterable = collRecipes.aggregate(Arrays.asList(
+						new Document("$project", new Document("total", new Document("$add", fieldList))),
+						new Document("$sort", new Document("total", -1)),
+						new Document("$limit", 1)
+					));
+			
+			final List<Document> results = new ArrayList<Document>();
+			iterable.forEach(new Block<Document>() {
+				@Override
+				public void apply(final Document document) {
+					results.add(document);
+				}
+			});
+			num = (long)(results.get(0).getInteger("total"));
+			
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 				
 		return num;
 	}
