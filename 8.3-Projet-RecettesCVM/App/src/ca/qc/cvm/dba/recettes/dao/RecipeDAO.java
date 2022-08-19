@@ -76,16 +76,20 @@ public class RecipeDAO {
 			doc.append("ingredients", ingredientsList);
 
 			if (recipe.getId() == null) {
+				long id = 0;
 				try {
 					Recipe lastAddedRecipe = getLastAddedRecipe();
-					doc.append("_id", lastAddedRecipe.getId() + 1);
+					id = lastAddedRecipe.getId() + 1;
 				}
 				catch (NullPointerException ne) {
-					long firstId = 0;
-					doc.append("_id", firstId);
+					System.out.println("Première recette! Espérons que ce soit le début d'une belle aventure.");
 				}
 				catch (Exception e) {
 					e.printStackTrace();
+				}
+				finally {
+					recipe.setId(id);
+					doc.append("_id", id);
 				}
 				
 				collRecipes.insertOne(doc);
@@ -425,17 +429,66 @@ public class RecipeDAO {
 	 * @return
 	 */
 	public static List<String> getSimilarRecipes(long recipeId, int limit) {
-		List<String> recipeList = new ArrayList<String>();
+		final List<String> recipeList = new ArrayList<String>();
 		
-		// Commande dans la console pour obtenir pas mal ce qu'on veut (faut passer le bon array à la place
-		// de ["BANANE", "CACAO"]
-		// db.recipes.aggregate([ {$match: {"ingredients.name": {$in: ["BANANE","CACAO"]}}}, {$project: {_id: "$name", similarIngredientCount: {$size: {$filter: {input: "$ingredients.name", cond: {$in: ["$$this", ["BANANE", "CACAO"] ]}} }}}} ]); 
+		try {
+			MongoDatabase conMongo = MongoConnection.getConnection();
+			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+
+			Document recipeDoc = collRecipes.find(new Document("_id", recipeId)).first();
+			
+			ArrayList<Document> ingredients = (ArrayList)recipeDoc.get("ingredients");
+			BsonArray ingArray = new BsonArray();
+			
+			for (Document i : ingredients) {
+				ingArray.add(new BsonString(i.getString("name")));
+			}
+			
+			BsonArray recipeMatchCount = new BsonArray();
+			recipeMatchCount.add(new BsonString("$$this"));
+			recipeMatchCount.add(ingArray);
+			
+			Document match = new Document("$match", new Document("ingredients.name", new Document("$in", ingArray)));
+			
+			Document filter = new Document();
+			filter.append("input", "$ingredients.name");
+			filter.append("cond", new Document("$in", recipeMatchCount));
+						
+			Document projectPipeline = new Document();
+			projectPipeline.append("_id", "$name");
+			projectPipeline.append("similarIngredientsCount", new Document("$size", new Document("$filter", filter)));
+			
+			Document project = new Document("$project", projectPipeline);
+			Document sort = new Document("$sort", new Document("similarIngredientsCount", -1));
+			Document limitResults = new Document("$limit", limit);
+			
+			AggregateIterable<Document> iterable = collRecipes.aggregate(Arrays.asList(
+						match,
+						project,
+						sort,
+						limitResults
+					));
+			
+			iterable.forEach(new Block<Document>() {
+				@Override
+				public void apply(final Document document) {
+					recipeList.add(document.get("_id").toString());
+				}
+			});			
+			
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+	
+		// db.recipes.aggregate([ 
+		// {$match: {"ingredients.name": {$in: ["CHAMPIGNON","FROMAGE","SAUCE HOISIN"]}}}, 
+		// {$project: {_id: "$name", similarIngredientCount: {$size: {$filter: {input: "$ingredients.name", cond: {$in: ["$$this", ["FROMAGE", "CHAMPIGNON","SAUCE HOISIN"] ]}} }}}}, 
+		// {$sort: { "similarIngredientCount": -1 }}, 
+		// {$limit: 1} ]); 
 
 		return recipeList;
 	}
-	
-	
-	
 	
 	
 	
