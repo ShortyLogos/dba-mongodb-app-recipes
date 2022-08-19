@@ -505,11 +505,11 @@ public class RecipeDAO {
 			int nbPortions = random.nextInt(1, 16);
 			r.setPortion(nbPortions);
 			
-			// Récupérer une image aléatoire parmis les autres recettes
-			FindIterable<Document> iterator = collRecipes.find(new Document());
-			
+			// Récupérer une image aléatoire parmis les autres recettes qui partage un ingrédient avec la nouvelle
+			String oneIngredient = listIngredients.get(random.nextInt(0, listIngredients.size()-1)).getName().toUpperCase();
+			FindIterable<Document> iteratorImage = collRecipes.find(new Document("ingredients.name", oneIngredient));			
 			final List<Long> idList = new ArrayList<>();
-			iterator.forEach(new Block<Document>() {
+			iteratorImage.forEach(new Block<Document>() {
 				@Override
 				public void apply(Document document) {
 					idList.add(document.getLong("_id"));					
