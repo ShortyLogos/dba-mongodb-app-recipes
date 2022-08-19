@@ -12,7 +12,7 @@ effectué au moyen du tandem MongoDB - Java.
 
 ## INDEX UTILISÉS
 1. Index unique sur les noms des recettes (croissant)    
-// En MongoDB, l'ordre croissant et décroissant n'a pas vraiment d'importance sur les index appliqués sur un seul champ
+Note : L'ordre croissant et décroissant n'a pas vraiment d'importance sur les index appliqués sur un seul champ avec MongoDB
 ```
 db.recipes.createIndex( { "name": 1 }, { unique: true } );
 ```
