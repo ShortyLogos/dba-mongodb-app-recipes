@@ -55,6 +55,3 @@ https://www.mongodb.com/docs/
 Synthaxe des expressions régulières en Java :
 https://stackoverflow.com/questions/32714333/java-mongodb-regex-query
 
-Fonction utilitaire clamp en Java:
-https://stackoverflow.com/questions/16656651/does-java-have-a-clamp-function
-
