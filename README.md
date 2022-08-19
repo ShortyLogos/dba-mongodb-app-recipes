@@ -8,7 +8,7 @@ Karl Marchand
 ## COLLECTIONS
 Une seule collection 'recipes'. Les ingrédients sont gérés
 à l'intérieur des recettes et l'incrémentation des ID est
-géré par une méthode tandem MongoDB - Java.
+effectué au moyen du tandem MongoDB - Java.
 
 ## INDEX UTILISÉS
 1. Index unique sur les noms des recettes (croissant)    
