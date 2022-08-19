@@ -18,6 +18,7 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.UpdateOptions;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.DatabaseException;
@@ -75,6 +76,18 @@ public class RecipeDAO {
 			doc.append("ingredients", ingredientsList);
 
 			if (recipe.getId() == null) {
+				try {
+					Recipe lastAddedRecipe = getLastAddedRecipe();
+					doc.append("_id", lastAddedRecipe.getId() + 1);
+				}
+				catch (NullPointerException ne) {
+					long firstId = 0;
+					doc.append("_id", firstId);
+				}
+				catch (Exception e) {
+					e.printStackTrace();
+				}
+				
 				collRecipes.insertOne(doc);
 			}
 			else {
@@ -82,40 +95,15 @@ public class RecipeDAO {
 				collRecipes.replaceOne(filter, doc);
 			}
 			
-			// On effectue une requête suite à l'insertion pour obtenir le ID généré aléatoirement
-			// par MongoDB et l'utiliser comme clé dans BerkeleyDB
-			FindIterable<Document> iterator = collRecipes.find(new Document("name", recipeName));
+			byte[] image = recipe.getImageData();
+			
 			try {
-				final List<Boolean> internSuccess = new ArrayList<Boolean>();
-				iterator.forEach(new Block<Document>() {
-					
-					@Override
-					public void apply(final Document document) {
-						// Contrainte imposée par la classse Recipe pour convertir en Long
-						// On ne peut donc pas entreposer le hash complet généré par MongoDB
-						// Seulement la partie 'Timestamp' du hash
-						Long idRecipe = (long)document.getObjectId("_id").getTimestamp();
-						recipe.setId(idRecipe);
-						
-						String keyRecipe = String.valueOf(idRecipe);
-						byte[] image = recipe.getImageData();
-						
-						try {
-							DatabaseEntry theKey = new DatabaseEntry(keyRecipe.getBytes("UTF-8"));
-							DatabaseEntry theData = new DatabaseEntry(image);
-							conBerkeley.put(null, theKey, theData);
-							
-							internSuccess.add(true);
-						} catch (Exception e) {
-							e.printStackTrace();
-						}
-					}
-				});
-				if (internSuccess.get(0) == true) {
-					success = true;
-				}
-			}
-			catch (Exception e) {
+				DatabaseEntry theKey = new DatabaseEntry(String.valueOf(recipe.getId()).getBytes("UTF-8"));
+				DatabaseEntry theData = new DatabaseEntry(image);
+				conBerkeley.put(null, theKey, theData);
+				
+				success = true;
+			} catch (Exception e) {
 				e.printStackTrace();
 			}
 		}
@@ -389,7 +377,10 @@ public class RecipeDAO {
 		try {
 			MongoDatabase conMongo = MongoConnection.getConnection();
 			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
-			recipe = convertDocToRecipe(collRecipes.find().sort(new Document("_id", -1)).first());
+			Document doc = collRecipes.find().sort(new Document("_id", -1)).first();
+			if (doc != null) {
+				recipe = convertDocToRecipe(doc);
+			}
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -435,18 +426,13 @@ public class RecipeDAO {
 	 */
 	public static List<String> getSimilarRecipes(long recipeId, int limit) {
 		List<String> recipeList = new ArrayList<String>();
+		
+		// Commande dans la console pour obtenir pas mal ce qu'on veut (faut passer le bon array à la place
+		// de ["BANANE", "CACAO"]
+		// db.recipes.aggregate([ {$match: {"ingredients.name": {$in: ["BANANE","CACAO"]}}}, {$project: {_id: "$name", similarIngredientCount: {$size: {$filter: {input: "$ingredients.name", cond: {$in: ["$$this", ["BANANE", "CACAO"] ]}} }}}} ]); 
 
 		return recipeList;
 	}
-	
-	
-	
-	
-	
-	
-	
-	
-	
 	
 	
 	
@@ -491,8 +477,8 @@ public class RecipeDAO {
 	
 	public static Recipe convertDocToRecipe(Document document) {
 		Recipe recipe = new Recipe();
-		
-		recipe.setId((long)document.getObjectId("_id").getTimestamp());
+			
+		recipe.setId((document.getLong("_id")));
 		recipe.setName(document.getString("name"));
 		recipe.setPortion(document.getInteger("portion"));
 		recipe.setPrepTime(document.getInteger("prepTime"));
