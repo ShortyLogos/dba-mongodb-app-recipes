@@ -90,6 +90,6 @@ public class Recipe {
 	}
 
 	public String toString() {
-		return String.format("%-20s%-20s%-20s", name, portion + " portions", ingredients.size() + " ingrédients", steps.size() + " étapes");
+		return String.format("%-20s%-20s%-20s", name, portion + " portions", ingredients.size() + " ingrï¿½dients", steps.size() + " ï¿½tapes");
 	}
 }
