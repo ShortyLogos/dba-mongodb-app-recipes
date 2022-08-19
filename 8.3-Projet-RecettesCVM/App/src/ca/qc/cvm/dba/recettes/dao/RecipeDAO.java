@@ -443,11 +443,7 @@ public class RecipeDAO {
 			Random random = new Random();
 			
 			int nbrIngredients;
-			try {
-				nbrIngredients = random.nextInt(1, ingredientsDB.size()-1);
-			} catch (IllegalArgumentException iae) {
-				nbrIngredients = 1;	// Un seul ingrédient disponible dans la base de donnée
-			}
+			nbrIngredients = random.nextInt(1, ingredientsDB.size());
 
 			List<String> possibleQty = new ArrayList<>();
 			
@@ -460,14 +456,14 @@ public class RecipeDAO {
 			for (int i = 0; i < nbrIngredients; i++) {
 				int index;
 				try {
-					index = random.nextInt(0, ingredientsDB.size()-1);
+					index = random.nextInt(0, ingredientsDB.size());
 				} catch (IllegalArgumentException iae) {
 					index = 0;
 				}
 				String ingName = (String)(ingredientsDB.get(index));
 				
 				int rndQty = random.nextInt(1, 20);
-				String sufxQty = possibleQty.get(random.nextInt(0, possibleQty.size()-1));
+				String sufxQty = possibleQty.get(random.nextInt(0, possibleQty.size()));
 				String ingQty = String.valueOf(rndQty)+" "+sufxQty;
 				
 				listIngredients.add(new Ingredient(ingQty, ingName));
@@ -491,22 +487,26 @@ public class RecipeDAO {
 			List<String> stepsList = new ArrayList<>(); 
 			int nbrSteps = random.nextInt(1, 5);
 			for (int i = 0; i < nbrSteps; i++) {
-				int index = random.nextInt(0, possibleSteps.size()-1);
+				int index = random.nextInt(0, possibleSteps.size());
 				stepsList.add(possibleSteps.get(index));
 			}
 			r.setSteps(stepsList);
 			
 			// Créer des informations de préparations aléatoires
-			int maxTime = (int)getMaxRecipeTime();
-			int prepTime = random.nextInt(1, maxTime);
+			int maxTime = Math.max(5, (int)getMaxRecipeTime());
+			int prepTime = random.nextInt(1, maxTime / 2);
 			r.setPrepTime(prepTime);
+			
 			int cookTime = random.nextInt(1, maxTime-prepTime);
 			r.setCookTime(cookTime);
 			int nbPortions = random.nextInt(1, 16);
 			r.setPortion(nbPortions);
 			
 			// Récupérer une image aléatoire parmis les autres recettes qui partage un ingrédient avec la nouvelle
-			String oneIngredient = listIngredients.get(random.nextInt(0, listIngredients.size()-1)).getName().toUpperCase();
+			String oneIngredient;
+			oneIngredient = listIngredients.get(random.nextInt(0, listIngredients.size())).getName().toUpperCase();
+
+
 			FindIterable<Document> iteratorImage = collRecipes.find(new Document("ingredients.name", oneIngredient));			
 			final List<Long> idList = new ArrayList<>();
 			iteratorImage.forEach(new Block<Document>() {
@@ -519,11 +519,8 @@ public class RecipeDAO {
 			// On a besoin de récupérer le ID d'une recette existante afin de récupérer
 			// une image dans BerkeleyDB
 			String id;
-			try {
-				id = String.valueOf(idList.get(random.nextInt(0, idList.size()-1)));
-			} catch (IllegalArgumentException iae) {
-				id = "0";
-			}
+			id = String.valueOf(idList.get(random.nextInt(0, idList.size())));
+
 			
 			try {
 				Database conBerkeley = BerkeleyConnection.getConnection();
@@ -556,11 +553,8 @@ public class RecipeDAO {
 			int prefIndex = random.nextInt(0, 7);
 			String pref = prefixes.get(prefIndex).toUpperCase();
 			int sufIndex;
-			try {
-				sufIndex = random.nextInt(0, listIngredients.size()-1);
-			} catch (IllegalArgumentException iae) {
-				sufIndex = 0;
-			}
+			sufIndex = random.nextInt(0, listIngredients.size());
+
 			String suf = listIngredients.get(sufIndex).getName();
 			String name = pref + suf;
 			
