@@ -6,12 +6,15 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.regex.Pattern;
 
 import ca.qc.cvm.dba.recettes.entity.Ingredient;
 import ca.qc.cvm.dba.recettes.entity.Recipe;
 import ca.qc.cvm.dba.recettes.dao.MongoConnection;
 import ca.qc.cvm.dba.recettes.dao.BerkeleyConnection;
+
+import com.mongodb.BasicDBList;
 import com.mongodb.Block;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.FindIterable;
@@ -31,6 +34,7 @@ import org.bson.BsonInt64;
 import org.bson.BsonString;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.neo4j.driver.internal.shaded.io.netty.util.internal.ThreadLocalRandom;
 
 public class RecipeDAO {
 
@@ -270,7 +274,7 @@ public class RecipeDAO {
 
 		final List<Document> results = new ArrayList<Document>();
 
-		AggregateIterable<Document> iterable = collRecipes.aggregate(list );
+		AggregateIterable<Document> iterable = collRecipes.aggregate(list);
 		iterable.forEach(new Block<Document>() {
 			@Override
 			public void apply(final Document document) {
@@ -417,6 +421,117 @@ public class RecipeDAO {
 	 */
 	public static Recipe generateRandomRecipe() {
 		Recipe r = new Recipe();
+		
+		try {
+			// Sortir la liste des ingrédients utilisé dans la bd et en copier un nombres d'éléments aléatoire (Étape 01 et 02)
+			MongoDatabase conMongo = MongoConnection.getConnection();
+			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+			AggregateIterable<Document> iterable = collRecipes.aggregate(Arrays.asList(
+						new Document("$unwind", new Document("path","$ingredients")),
+						new Document("$group", new Document("_id", null).append("ingredients", new Document("$addToSet", "$ingredients.name"))),
+						new Document("$project", new Document("_id",0))
+					));
+			final List<Document> results = new ArrayList<Document>();
+			iterable.forEach(new Block<Document>() {
+				@Override
+				public void apply(final Document document) {
+					results.add(document);
+				}
+			});
+			ArrayList ingredientsDB = (ArrayList)results.get(0).get("ingredients");
+			List<Ingredient> listIngredients = new ArrayList<>(); 
+			Random random = new Random();
+			int nbrIngredients = random.nextInt(0,ingredientsDB.size()-1);
+			List<String> possibleQty = new ArrayList<>();
+			possibleQty.add("lbs");
+			possibleQty.add("portions");
+			possibleQty.add("cup");
+			possibleQty.add("tbs");
+			possibleQty.add("tsp");
+			for (int i = 0; i<nbrIngredients; i++) {
+				int index = random.nextInt(0,ingredientsDB.size()-1);
+				String ingName = (String)(ingredientsDB.get(index));
+				
+				int rndQty = random.nextInt(1,10);
+				String sufxQty = possibleQty.get(random.nextInt(0,possibleQty.size()-1));
+				String ingQty = String.valueOf(rndQty)+" "+sufxQty;
+				
+				listIngredients.add(new Ingredient(ingName,ingQty));
+			}
+			r.setIngredients(listIngredients);
+			
+			// Choisir un nombre aléatoire d'étapes prédéfini (Étape 03)
+			List<String> possibleSteps = new ArrayList<String>();
+			possibleSteps.add("Mélanger les ingrédients");
+			possibleSteps.add("Saler et poivrer");
+			possibleSteps.add("Cuire au four");
+			possibleSteps.add("Brasser délicatement");
+			possibleSteps.add("Porter à ébullition");
+			possibleSteps.add("Laisser reposer pendant 10 minutes");
+			possibleSteps.add("Répartir le mélange dans le contenant");
+			possibleSteps.add("Garnir chaque portion d'herbes au choix");
+			possibleSteps.add("Bien enrober dans la chapelure");
+			possibleSteps.add("Faire frire 2-3 minutes");
+			List<String> stepsList = new ArrayList<>(); 
+			int nbrSteps = random.nextInt(0,5);
+			for (int i = 0; i<nbrSteps; i++) {
+				int index = random.nextInt(0,possibleSteps.size()-1);
+				stepsList.add(possibleSteps.get(index));
+			}
+			r.setSteps(stepsList);
+			
+			//Créer des informations de préparations aléatoires (Étape 04)
+			int maxTime = (int)getMaxRecipeTime();
+			int prepTime = random.nextInt(1, maxTime);
+			r.setPrepTime(prepTime);
+			int cookTime = random.nextInt(1,maxTime-prepTime);
+			r.setCookTime(cookTime);
+			int nbPortions = random.nextInt(1,10);
+			r.setPortion(nbPortions);
+			
+			//Aller chercher une image aléatoire parmis les autres recettes (Étape 05)
+			final List<Long> idList = new ArrayList<>();
+			FindIterable<Document> iterator = collRecipes.find(new Document());
+			iterator.forEach(new Block<Document>() {
+				@Override
+				public void apply(Document document) {
+					idList.add(document.getLong("_id"));					
+				}
+			});
+			String id = String.valueOf(idList.get(random.nextInt(0,idList.size()-1)));
+			try {
+				Database conBerkeley = BerkeleyConnection.getConnection();
+				
+				DatabaseEntry theKey = new DatabaseEntry(id.getBytes("UTF-8"));
+			    DatabaseEntry theData = new DatabaseEntry();
+			    
+			    OperationStatus status = conBerkeley.get(null, theKey, theData, LockMode.DEFAULT);
+			    if (status == OperationStatus.SUCCESS) { 
+			        byte[] imgData = theData.getData();
+			        r.setImageData(imgData);
+			    } 
+
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			
+			//Créer un nom aléatoire (Étape 06)
+			List<String> prefixes = new ArrayList<String>();
+			prefixes.add("Giblotte de ");
+			prefixes.add("Casserole de ");
+			prefixes.add("Pâté de ");
+			prefixes.add("Risotto de ");
+			prefixes.add("Sauter de ");
+			int prefIndex = random.nextInt(0,4);
+			String pref = prefixes.get(prefIndex);
+			int sufIndex = random.nextInt(0,listIngredients.size()-1);
+			String suf = listIngredients.get(sufIndex).getName();
+			String name = pref + suf;
+			r.setName(name);
+			
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 		
 		return r;
 	}
