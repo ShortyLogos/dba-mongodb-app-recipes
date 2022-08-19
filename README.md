@@ -52,7 +52,7 @@ db.recipes.aggregate([ {$match: {"ingredients.name": {$in: ["CHAMPIGNON","FROMAG
 La documentation de MongoDB pour l'ensemble du projet :
 https://www.mongodb.com/docs/
 
-Synthaxe des expression régulières en Java :
+Synthaxe des expressions régulières en Java :
 https://stackoverflow.com/questions/32714333/java-mongodb-regex-query
 
 Fonction utilitaire clamp en Java:
