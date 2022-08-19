@@ -137,12 +137,6 @@ public class RecipeDAO {
 	 * @return la liste des recettes, selon le filtre si n�cessaire
 	 */
 	public static List<Recipe> getRecipeList(String filter, int limit) {
-		boolean displayKeys = true;
-
-		if (displayKeys) {
-			testBerkeley();
-		}
-
 		final List<Recipe> recipeList = new ArrayList<Recipe>();
 		try {
 			MongoDatabase conMongo = MongoConnection.getConnection();
@@ -214,7 +208,7 @@ public class RecipeDAO {
 			collRecipes.deleteMany(new Document());
 			
 			final Database conBerkeley = BerkeleyConnection.getConnection();
-			List<String> myList = new ArrayList<>(); 
+			List<String> myList = new ArrayList<>();
 			try {
 				myCursor = conBerkeley.openCursor(null, null);
 				DatabaseEntry foundKey = new DatabaseEntry();
@@ -236,6 +230,7 @@ public class RecipeDAO {
 		    for (String key: myList) {
 		    	conBerkeley.delete(null, new DatabaseEntry(key.getBytes("UTF-8")));
 		    }
+		    
 			success = true;
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -273,8 +268,10 @@ public class RecipeDAO {
 				results.add(document);
 			}
 		});
-
-		num = results.get(0).getDouble("average");
+		
+		if (results.size() > 0) {
+			num = results.get(0).getDouble("average");
+		}
 		
 		return num;
 	}
@@ -309,7 +306,10 @@ public class RecipeDAO {
 					results.add(document);
 				}
 			});
-			num = (long)(results.get(0).getInteger("total"));
+			
+			if (results.size() > 0) {
+				num = (long)(results.get(0).getInteger("total"));
+			}
 			
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -416,16 +416,19 @@ public class RecipeDAO {
 	 */
 	public static Recipe generateRandomRecipe() {
 		Recipe r = new Recipe();
+		int arrBound = 0;
 		
 		try {
-			// Sortir la liste des ingrédients utilisé dans la bd et en copier un nombres d'éléments aléatoire (Étape 01 et 02)
+			// Sortir la liste des ingrédients utilisé dans la bd et en copier un nombres d'éléments aléatoires
 			MongoDatabase conMongo = MongoConnection.getConnection();
 			MongoCollection<Document> collRecipes = conMongo.getCollection("recipes");
+			
 			AggregateIterable<Document> iterable = collRecipes.aggregate(Arrays.asList(
 						new Document("$unwind", new Document("path","$ingredients")),
 						new Document("$group", new Document("_id", null).append("ingredients", new Document("$addToSet", "$ingredients.name"))),
-						new Document("$project", new Document("_id",0))
+						new Document("$project", new Document("_id", 0))
 					));
+			
 			final List<Document> results = new ArrayList<Document>();
 			iterable.forEach(new Block<Document>() {
 				@Override
@@ -433,30 +436,47 @@ public class RecipeDAO {
 					results.add(document);
 				}
 			});
+			
 			ArrayList ingredientsDB = (ArrayList)results.get(0).get("ingredients");
 			List<Ingredient> listIngredients = new ArrayList<>(); 
+			
 			Random random = new Random();
-			int nbrIngredients = random.nextInt(0,ingredientsDB.size()-1);
+			
+			int nbrIngredients;
+			try {
+				nbrIngredients = random.nextInt(1, ingredientsDB.size()-1);
+			} catch (IllegalArgumentException iae) {
+				nbrIngredients = 1;	// Un seul ingrédient disponible dans la base de donnée
+			}
+
 			List<String> possibleQty = new ArrayList<>();
+			
 			possibleQty.add("lbs");
 			possibleQty.add("portions");
 			possibleQty.add("cup");
 			possibleQty.add("tbs");
 			possibleQty.add("tsp");
-			for (int i = 0; i<nbrIngredients; i++) {
-				int index = random.nextInt(0,ingredientsDB.size()-1);
+			
+			for (int i = 0; i < nbrIngredients; i++) {
+				int index;
+				try {
+					index = random.nextInt(0, ingredientsDB.size()-1);
+				} catch (IllegalArgumentException iae) {
+					index = 0;
+				}
 				String ingName = (String)(ingredientsDB.get(index));
 				
-				int rndQty = random.nextInt(1,10);
-				String sufxQty = possibleQty.get(random.nextInt(0,possibleQty.size()-1));
+				int rndQty = random.nextInt(1, 20);
+				String sufxQty = possibleQty.get(random.nextInt(0, possibleQty.size()-1));
 				String ingQty = String.valueOf(rndQty)+" "+sufxQty;
 				
-				listIngredients.add(new Ingredient(ingName,ingQty));
+				listIngredients.add(new Ingredient(ingQty, ingName));
 			}
 			r.setIngredients(listIngredients);
 			
-			// Choisir un nombre aléatoire d'étapes prédéfini (Étape 03)
+			// Déterminer un nombre aléatoire d'étapes prédéfinies
 			List<String> possibleSteps = new ArrayList<String>();
+			
 			possibleSteps.add("Mélanger les ingrédients");
 			possibleSteps.add("Saler et poivrer");
 			possibleSteps.add("Cuire au four");
@@ -466,34 +486,45 @@ public class RecipeDAO {
 			possibleSteps.add("Répartir le mélange dans le contenant");
 			possibleSteps.add("Garnir chaque portion d'herbes au choix");
 			possibleSteps.add("Bien enrober dans la chapelure");
-			possibleSteps.add("Faire frire 2-3 minutes");
+			possibleSteps.add("Faire frire 2 à 3 minutes");
+			
 			List<String> stepsList = new ArrayList<>(); 
-			int nbrSteps = random.nextInt(0,5);
-			for (int i = 0; i<nbrSteps; i++) {
-				int index = random.nextInt(0,possibleSteps.size()-1);
+			int nbrSteps = random.nextInt(1, 5);
+			for (int i = 0; i < nbrSteps; i++) {
+				int index = random.nextInt(0, possibleSteps.size()-1);
 				stepsList.add(possibleSteps.get(index));
 			}
 			r.setSteps(stepsList);
 			
-			//Créer des informations de préparations aléatoires (Étape 04)
+			// Créer des informations de préparations aléatoires
 			int maxTime = (int)getMaxRecipeTime();
 			int prepTime = random.nextInt(1, maxTime);
 			r.setPrepTime(prepTime);
-			int cookTime = random.nextInt(1,maxTime-prepTime);
+			int cookTime = random.nextInt(1, maxTime-prepTime);
 			r.setCookTime(cookTime);
-			int nbPortions = random.nextInt(1,10);
+			int nbPortions = random.nextInt(1, 16);
 			r.setPortion(nbPortions);
 			
-			//Aller chercher une image aléatoire parmis les autres recettes (Étape 05)
-			final List<Long> idList = new ArrayList<>();
+			// Récupérer une image aléatoire parmis les autres recettes
 			FindIterable<Document> iterator = collRecipes.find(new Document());
+			
+			final List<Long> idList = new ArrayList<>();
 			iterator.forEach(new Block<Document>() {
 				@Override
 				public void apply(Document document) {
 					idList.add(document.getLong("_id"));					
 				}
 			});
-			String id = String.valueOf(idList.get(random.nextInt(0,idList.size()-1)));
+			
+			// On a besoin de récupérer le ID d'une recette existante afin de récupérer
+			// une image dans BerkeleyDB
+			String id;
+			try {
+				id = String.valueOf(idList.get(random.nextInt(0, idList.size()-1)));
+			} catch (IllegalArgumentException iae) {
+				id = "0";
+			}
+			
 			try {
 				Database conBerkeley = BerkeleyConnection.getConnection();
 				
@@ -510,20 +541,30 @@ public class RecipeDAO {
 				e.printStackTrace();
 			}
 			
-			//Créer un nom aléatoire (Étape 06)
+			// Générer un nom aléatoire
 			List<String> prefixes = new ArrayList<String>();
+			
 			prefixes.add("Giblotte de ");
 			prefixes.add("Casserole de ");
-			prefixes.add("Pâté de ");
+			prefixes.add("Pâté au ");
 			prefixes.add("Risotto de ");
 			prefixes.add("Sauté de ");
-			int prefIndex = random.nextInt(0,4);
-			String pref = prefixes.get(prefIndex);
-			int sufIndex = random.nextInt(0,listIngredients.size()-1);
+			prefixes.add("Sandwich au ");
+			prefixes.add("Croustillant de ");
+			prefixes.add("Soupe de ");
+			
+			int prefIndex = random.nextInt(0, 7);
+			String pref = prefixes.get(prefIndex).toUpperCase();
+			int sufIndex;
+			try {
+				sufIndex = random.nextInt(0, listIngredients.size()-1);
+			} catch (IllegalArgumentException iae) {
+				sufIndex = 0;
+			}
 			String suf = listIngredients.get(sufIndex).getName();
 			String name = pref + suf;
-			r.setName(name);
 			
+			r.setName(name);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -597,50 +638,9 @@ public class RecipeDAO {
 			
 		} catch (Exception e) {
 			e.printStackTrace();
-		}
-
-	
-		// db.recipes.aggregate([ {$match: {"ingredients.name": {$in: ["CHAMPIGNON","FROMAGE","SAUCE HOISIN"]}}}, {$project: {_id: "$name", similarIngredientCount: {$size: {$filter: {input: "$ingredients.name", cond: {$in: ["$$this", ["FROMAGE", "CHAMPIGNON","SAUCE HOISIN"] ]}} }}}}, {$sort: { "similarIngredientCount": -1 }}, {$limit: 5} ]); 
+		} 
 
 		return recipeList;
-	}
-	
-	
-	
-	public static void testBerkeley() {
-		Database connection = BerkeleyConnection.getConnection();
-		Cursor myCursor = null;
-		
-		System.out.println("Database dump: ");
-		try {
-		    myCursor = connection.openCursor(null, null);
-		 
-		    DatabaseEntry foundKey = new DatabaseEntry();
-		    DatabaseEntry foundData = new DatabaseEntry();
-		 
-		    while (myCursor.getNext(foundKey, foundData, LockMode.DEFAULT) == OperationStatus.SUCCESS) {
-		        String keyString = new String(foundKey.getData(), "UTF-8");
-		        System.out.println(foundKey);
-		    }
-		} 
-		catch (DatabaseException de) {
-		    System.err.println("Erreur de lecture de la base de données: " + de);
-		} 
-		catch (UnsupportedEncodingException e) {
-			e.printStackTrace();
-		} 
-		finally {
-		    try {
-		        if (myCursor != null) {
-		            myCursor.close();
-		        }
-		    } 
-		 catch(DatabaseException dbe) {
-		        System.err.println("Erreur de fermeture du curseur: " + dbe.toString());
-		    }
-		}
-		
-		System.out.println("Test terminé.");
 	}
 	
 	public static Recipe convertDocToRecipe(Document document) {
@@ -682,5 +682,4 @@ public class RecipeDAO {
 		
 		return recipe;
 	}
-	
 }
